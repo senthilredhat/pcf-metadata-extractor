@@ -118,18 +118,20 @@ def extract_app_metadata(
         volume_services,
         volume_size,
     ) = _extract_services_block(ex, app_guid, app_name)
-    env_raw = ex.client.fetch_with_retry(
-        f"/v3/apps/{app_guid}/env", CONFIG_API_MAX_RETRIES_OPTIONAL
-    )
-    if env_raw.startswith("__ERROR"):
-        print(
-            f"   Warning: Environment variables for {app_name} unavailable",
-            file=sys.stderr,
+    env_vars = ""
+    if not ex.skip_env_vars:
+        env_raw = ex.client.fetch_with_retry(
+            f"/v3/apps/{app_guid}/env", CONFIG_API_MAX_RETRIES_OPTIONAL
         )
-        env_raw = "{}"
-    env_vars = sanitize.sanitize_env_vars_from_api(env_raw, ex._validate)
-    if env_vars == "null":
-        env_vars = ""
+        if env_raw.startswith("__ERROR"):
+            print(
+                f"   Warning: Environment variables for {app_name} unavailable",
+                file=sys.stderr,
+            )
+            env_raw = "{}"
+        env_vars = sanitize.sanitize_env_vars_from_api(env_raw, ex._validate)
+        if env_vars == "null":
+            env_vars = ""
     process.extract_processes(
         ex,
         app_guid,

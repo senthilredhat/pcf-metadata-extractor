@@ -36,6 +36,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Disable SSL certificate verification (insecure; use only for self-signed certs)",
     )
+    p.add_argument(
+        "--no-env-vars",
+        action="store_true",
+        help="Skip extracting environment variables (Env Vars column will be empty)",
+    )
     return p
 
 
@@ -51,6 +56,7 @@ def main() -> None:
         output_path=path,
         debug=bool(args.debug),
         https_verify=not args.insecure,
+        skip_env_vars=bool(args.no_env_vars),
     )
     try:
         run_extraction(cfg)

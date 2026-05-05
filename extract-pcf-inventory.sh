@@ -304,7 +304,7 @@ function sanitize_json_recursive() {
   pattern_regex=$(IFS="|"; echo "${CONFIG_SENSITIVE_PATTERNS[*]}")
 
   # Use jq walk to recursively process all object fields
-  echo "${json}" | jq --arg placeholder "${CONFIG_REDACTION_PLACEHOLDER}" \
+  echo "${json}" | jq -c --arg placeholder "${CONFIG_REDACTION_PLACEHOLDER}" \
     --arg patterns "${pattern_regex}" 'walk(
     if type == "object" then
       to_entries | map(
@@ -835,10 +835,10 @@ function extract_spaces() {
 
   local space_count
   space_count=$(echo "${spaces_json}" | jq -r '.pagination.total_results // 0')
-  echo "📦 Found ${space_count} space(s) in org '${ORG_NAME}'"
+  echo "📦 Found ${space_count} space(s) in org '${ORG_NAME}'" >&2
 
   if [[ "${space_count}" -eq 0 ]]; then
-    echo "⚠️ No spaces found in org '${ORG_NAME}'"
+    echo "⚠️ No spaces found in org '${ORG_NAME}'" >&2
     return 0
   fi
 
@@ -993,13 +993,15 @@ function extract_app_metadata() {
   volume_size="${EXTRACTED_VOLUME_SIZE}"
 
   # Extract environment variables (with sanitization)
-  local env_vars
-  local env_vars_json
-  env_vars_json=$(api_fetch_optional "/v3/apps/${app_guid}/env" \
-                  "Environment variables for ${app_name}")
-  env_vars=$(sanitize_env_vars "${env_vars_json}")
-  # Normalize null to empty string
-  [[ "${env_vars}" == "null" ]] && env_vars=""
+  local env_vars=""
+  if [[ "${SKIP_ENV_VARS}" != "true" ]]; then
+    local env_vars_json
+    env_vars_json=$(api_fetch_optional "/v3/apps/${app_guid}/env" \
+                    "Environment variables for ${app_name}")
+    env_vars=$(sanitize_env_vars "${env_vars_json}")
+    # Normalize null to empty string
+    [[ "${env_vars}" == "null" ]] && env_vars=""
+  fi
 
   # Extract processes and write CSV rows
   extract_processes "${app_guid}" "${app_name}" "${app_state}" \
@@ -1520,7 +1522,7 @@ function extract_processes() {
   proc_count=$(echo "${processes_json}" | jq -r '.pagination.total_results // 0')
 
   if [[ "${proc_count}" -eq 0 ]]; then
-    echo "      ⚠️  No processes for app '${app_name}'"
+    echo "      ⚠️  No processes for app '${app_name}'" >&2
     return 0
   fi
 
@@ -1595,6 +1597,7 @@ OPTIONS:
   -o, --output FILE    Output CSV file path
                        (default: pcfusage_<org>_YYYYMMDDHHMMSS.csv)
   -d, --debug          Enable verbose diagnostic output
+  --no-env-vars        Skip extracting environment variables (Env Vars column will be empty)
   -h, --help           Display this help message
 
 DESCRIPTION:
@@ -1729,13 +1732,19 @@ function cli_parse_args() {
   ORG_NAME=""
   DEBUG=""
   OUTFILE=""
+  SKIP_ENV_VARS=""
 
   # Parse arguments
   while [[ $# -gt 0 ]]; do
     case "$1" in
       -d|--debug)
         DEBUG="--debug"
-        echo "🔍 Debug mode enabled"
+        echo "🔍 Debug mode enabled" >&2
+        shift
+        ;;
+      --no-env-vars)
+        SKIP_ENV_VARS="true"
+        echo "⚠️  Environment variable extraction disabled" >&2
         shift
         ;;
       -o|--output)
@@ -1800,20 +1809,20 @@ GLOBAL_SECURITY_GROUPS=$(extract_global_security_groups)
 extract_spaces "${ORG_GUID}" "${ORG_SECURITY_GROUPS}" "${GLOBAL_SECURITY_GROUPS}"
 
 # Report completion
-echo
-echo "✅ Report generated: ${OUTFILE}"
+echo >&2
+echo "✅ Report generated: ${OUTFILE}" >&2
 if [[ "${WARNING_COUNT}" -gt 0 ]]; then
   echo "⚠️  Data Quality: ${WARNING_COUNT} warnings encountered " \
-       "(see stderr output)"
-  echo "   Some data may be incomplete due to API failures"
-  echo "   Run with --debug flag for detailed warnings"
+       "(see stderr output)" >&2
+  echo "   Some data may be incomplete due to API failures" >&2
+  echo "   Run with --debug flag for detailed warnings" >&2
 else
-  echo "✓  Data Quality: No warnings - extraction completed successfully"
+  echo "✓  Data Quality: No warnings - extraction completed successfully" >&2
 fi
 
 if [[ "${DEBUG}" == "--debug" ]]; then
-  echo "🔍 CSV preview:"
-  head -n 10 "${OUTFILE}"
+  echo "🔍 CSV preview:" >&2
+  head -n 10 "${OUTFILE}" >&2
 
   # Debug: validate_json_response function test
   util_debug "Testing validate_json_response..."

@@ -13,6 +13,7 @@ class ExtractorLike(Protocol):
     org_guid: str
     debug: bool
     warning_count: int
+    skip_env_vars: bool
 
     def _validate(self, j: str, context: str) -> bool: ...
     def _debug(self, msg: str) -> None: ...

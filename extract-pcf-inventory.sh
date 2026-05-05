@@ -1252,6 +1252,7 @@ function format_service_instance_entry() {
 #
 # Parameters:
 #   $1 - Service instance GUID
+#   $2 - Optional: Pre-fetched service instance JSON (avoids duplicate API call)
 #
 # Returns:
 #   Formatted service instance entry string via echo
@@ -1259,17 +1260,22 @@ function format_service_instance_entry() {
 # ----------------------------------------------------------------------------
 function extract_service_instance_details() {
   local service_instance_guid="$1"
+  local service_instance_json_param="${2:-}"
 
-  # Fetch service instance
+  # Use pre-fetched JSON if provided, otherwise fetch from API
   local service_instance_json
-  service_instance_json=$(api_fetch_optional \
-    "/v3/service_instances/${service_instance_guid}" \
-    "Service instance ${service_instance_guid}")
+  if [[ -n "${service_instance_json_param}" ]]; then
+    service_instance_json="${service_instance_json_param}"
+  else
+    service_instance_json=$(api_fetch_optional \
+      "/v3/service_instances/${service_instance_guid}" \
+      "Service instance ${service_instance_guid}")
 
-  if ! validate_json_response "${service_instance_json}" \
-       "Service instance ${service_instance_guid}"; then
-    util_debug "Failed to retrieve service instance details for ${service_instance_guid}"
-    return 0
+    if ! validate_json_response "${service_instance_json}" \
+         "Service instance ${service_instance_guid}"; then
+      util_debug "Failed to retrieve service instance details for ${service_instance_guid}"
+      return 0
+    fi
   fi
 
   # Extract instance metadata
@@ -1374,8 +1380,9 @@ function extract_services() {
       instance_name=$(echo "${service_instance_json}" | jq -r '.name // empty')
 
       # Extract and format service instance details
+      # Pass the already-fetched JSON to avoid duplicate API call
       local entry
-      entry=$(extract_service_instance_details "${service_instance_guid}")
+      entry=$(extract_service_instance_details "${service_instance_guid}" "${service_instance_json}")
 
       # Append to list if entry was successfully retrieved
       if [[ -n "${entry}" ]]; then
@@ -1554,20 +1561,23 @@ function extract_processes() {
       "${space_security_groups}" "${org_security_groups}" "${global_security_groups}")
 
     # Write CSV row with new columns: Memory Usage(MB), Disk Usage(MB), Total Disk Usage(MB), Volume Services, Volume Size(GB)
-    echo "$(csv_escape_field "${ORG_NAME}"),$(csv_escape_field "${space_name}")," \
-         "$(csv_escape_field "${app_name}"),$(csv_escape_field "${proc_type}")," \
-         "${instances},${mem},${disk},${mem_usage},${disk_usage},${total_disk_usage}," \
-         "$(csv_escape_field "${app_state}")," \
-         "$(csv_escape_field "${buildpacks}")," \
-         "$(csv_escape_field "${buildpack_details}")," \
-         "$(csv_escape_field "${runtime_version}"),$(csv_escape_field "${routes}")," \
-         "$(csv_escape_field "${domains}")," \
-         "$(csv_escape_field "${service_instances}")," \
-         "$(csv_escape_field "${service_bindings}")," \
-         "$(csv_escape_field "${volume_services}")," \
-         "$(csv_escape_field "${volume_size}")," \
-         "$(csv_escape_field "${env_vars}")," \
-         "$(csv_escape_field "${all_security_groups}")" >> "${OUTFILE}"
+    # Build row into variable to avoid space injection from backslash continuation
+    local csv_row
+    csv_row="$(csv_escape_field "${ORG_NAME}"),$(csv_escape_field "${space_name}"),"
+    csv_row="${csv_row}$(csv_escape_field "${app_name}"),$(csv_escape_field "${proc_type}"),"
+    csv_row="${csv_row}${instances},${mem},${disk},${mem_usage},${disk_usage},${total_disk_usage},"
+    csv_row="${csv_row}$(csv_escape_field "${app_state}"),"
+    csv_row="${csv_row}$(csv_escape_field "${buildpacks}"),"
+    csv_row="${csv_row}$(csv_escape_field "${buildpack_details}"),"
+    csv_row="${csv_row}$(csv_escape_field "${runtime_version}"),$(csv_escape_field "${routes}"),"
+    csv_row="${csv_row}$(csv_escape_field "${domains}"),"
+    csv_row="${csv_row}$(csv_escape_field "${service_instances}"),"
+    csv_row="${csv_row}$(csv_escape_field "${service_bindings}"),"
+    csv_row="${csv_row}$(csv_escape_field "${volume_services}"),"
+    csv_row="${csv_row}$(csv_escape_field "${volume_size}"),"
+    csv_row="${csv_row}$(csv_escape_field "${env_vars}"),"
+    csv_row="${csv_row}$(csv_escape_field "${all_security_groups}")"
+    echo "${csv_row}" >> "${OUTFILE}"
   done
 }
 

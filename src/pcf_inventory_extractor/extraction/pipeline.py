@@ -48,6 +48,7 @@ class ExtractConfig:
     cf_username: str | None = None
     cf_password: str | None = None
     https_verify: bool = True
+    skip_env_vars: bool = False
 
 
 def _password_nonempty(cfg: ExtractConfig) -> bool:
@@ -103,6 +104,7 @@ class InventoryExtractor:
         self.global_sg = ""
         self.debug = cfg.debug
         self.https_verify = cfg.https_verify
+        self.skip_env_vars = cfg.skip_env_vars
         self.warning_count = 0
         self._out: TextIO | None = None
 

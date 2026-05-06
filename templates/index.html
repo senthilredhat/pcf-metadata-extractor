@@ -138,6 +138,19 @@
                 title="When enabled, the server writes extra API and diagnostic details to its stderr (view server logs, not the browser)."
               >Debug (verbose diagnostics to server stderr)</label>
             </p>
+            <p class="app-checkbox">
+              <input
+                name="no_env_vars"
+                type="checkbox"
+                value="on"
+                id="no_env_vars"
+                title="When enabled, environment variables will not be extracted. The Env Vars column will be empty, improving performance and security."
+              />
+              <label
+                for="no_env_vars"
+                title="When enabled, environment variables will not be extracted. The Env Vars column will be empty, improving performance and security."
+              >Skip environment variables</label>
+            </p>
           </div>
           <div class="app-form__actions">
             <button

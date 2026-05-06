@@ -304,7 +304,7 @@ function sanitize_json_recursive() {
   pattern_regex=$(IFS="|"; echo "${CONFIG_SENSITIVE_PATTERNS[*]}")
 
   # Use jq walk to recursively process all object fields
-  echo "${json}" | jq --arg placeholder "${CONFIG_REDACTION_PLACEHOLDER}" \
+  echo "${json}" | jq -c --arg placeholder "${CONFIG_REDACTION_PLACEHOLDER}" \
     --arg patterns "${pattern_regex}" 'walk(
     if type == "object" then
       to_entries | map(
@@ -835,10 +835,10 @@ function extract_spaces() {
 
   local space_count
   space_count=$(echo "${spaces_json}" | jq -r '.pagination.total_results // 0')
-  echo "📦 Found ${space_count} space(s) in org '${ORG_NAME}'"
+  echo "📦 Found ${space_count} space(s) in org '${ORG_NAME}'" >&2
 
   if [[ "${space_count}" -eq 0 ]]; then
-    echo "⚠️ No spaces found in org '${ORG_NAME}'"
+    echo "⚠️ No spaces found in org '${ORG_NAME}'" >&2
     return 0
   fi
 
@@ -993,13 +993,15 @@ function extract_app_metadata() {
   volume_size="${EXTRACTED_VOLUME_SIZE}"
 
   # Extract environment variables (with sanitization)
-  local env_vars
-  local env_vars_json
-  env_vars_json=$(api_fetch_optional "/v3/apps/${app_guid}/env" \
-                  "Environment variables for ${app_name}")
-  env_vars=$(sanitize_env_vars "${env_vars_json}")
-  # Normalize null to empty string
-  [[ "${env_vars}" == "null" ]] && env_vars=""
+  local env_vars=""
+  if [[ "${SKIP_ENV_VARS}" != "true" ]]; then
+    local env_vars_json
+    env_vars_json=$(api_fetch_optional "/v3/apps/${app_guid}/env" \
+                    "Environment variables for ${app_name}")
+    env_vars=$(sanitize_env_vars "${env_vars_json}")
+    # Normalize null to empty string
+    [[ "${env_vars}" == "null" ]] && env_vars=""
+  fi
 
   # Extract processes and write CSV rows
   extract_processes "${app_guid}" "${app_name}" "${app_state}" \
@@ -1250,6 +1252,7 @@ function format_service_instance_entry() {
 #
 # Parameters:
 #   $1 - Service instance GUID
+#   $2 - Optional: Pre-fetched service instance JSON (avoids duplicate API call)
 #
 # Returns:
 #   Formatted service instance entry string via echo
@@ -1257,17 +1260,22 @@ function format_service_instance_entry() {
 # ----------------------------------------------------------------------------
 function extract_service_instance_details() {
   local service_instance_guid="$1"
+  local service_instance_json_param="${2:-}"
 
-  # Fetch service instance
+  # Use pre-fetched JSON if provided, otherwise fetch from API
   local service_instance_json
-  service_instance_json=$(api_fetch_optional \
-    "/v3/service_instances/${service_instance_guid}" \
-    "Service instance ${service_instance_guid}")
+  if [[ -n "${service_instance_json_param}" ]]; then
+    service_instance_json="${service_instance_json_param}"
+  else
+    service_instance_json=$(api_fetch_optional \
+      "/v3/service_instances/${service_instance_guid}" \
+      "Service instance ${service_instance_guid}")
 
-  if ! validate_json_response "${service_instance_json}" \
-       "Service instance ${service_instance_guid}"; then
-    util_debug "Failed to retrieve service instance details for ${service_instance_guid}"
-    return 0
+    if ! validate_json_response "${service_instance_json}" \
+         "Service instance ${service_instance_guid}"; then
+      util_debug "Failed to retrieve service instance details for ${service_instance_guid}"
+      return 0
+    fi
   fi
 
   # Extract instance metadata
@@ -1372,8 +1380,9 @@ function extract_services() {
       instance_name=$(echo "${service_instance_json}" | jq -r '.name // empty')
 
       # Extract and format service instance details
+      # Pass the already-fetched JSON to avoid duplicate API call
       local entry
-      entry=$(extract_service_instance_details "${service_instance_guid}")
+      entry=$(extract_service_instance_details "${service_instance_guid}" "${service_instance_json}")
 
       # Append to list if entry was successfully retrieved
       if [[ -n "${entry}" ]]; then
@@ -1520,7 +1529,7 @@ function extract_processes() {
   proc_count=$(echo "${processes_json}" | jq -r '.pagination.total_results // 0')
 
   if [[ "${proc_count}" -eq 0 ]]; then
-    echo "      ⚠️  No processes for app '${app_name}'"
+    echo "      ⚠️  No processes for app '${app_name}'" >&2
     return 0
   fi
 
@@ -1552,20 +1561,23 @@ function extract_processes() {
       "${space_security_groups}" "${org_security_groups}" "${global_security_groups}")
 
     # Write CSV row with new columns: Memory Usage(MB), Disk Usage(MB), Total Disk Usage(MB), Volume Services, Volume Size(GB)
-    echo "$(csv_escape_field "${ORG_NAME}"),$(csv_escape_field "${space_name}")," \
-         "$(csv_escape_field "${app_name}"),$(csv_escape_field "${proc_type}")," \
-         "${instances},${mem},${disk},${mem_usage},${disk_usage},${total_disk_usage}," \
-         "$(csv_escape_field "${app_state}")," \
-         "$(csv_escape_field "${buildpacks}")," \
-         "$(csv_escape_field "${buildpack_details}")," \
-         "$(csv_escape_field "${runtime_version}"),$(csv_escape_field "${routes}")," \
-         "$(csv_escape_field "${domains}")," \
-         "$(csv_escape_field "${service_instances}")," \
-         "$(csv_escape_field "${service_bindings}")," \
-         "$(csv_escape_field "${volume_services}")," \
-         "$(csv_escape_field "${volume_size}")," \
-         "$(csv_escape_field "${env_vars}")," \
-         "$(csv_escape_field "${all_security_groups}")" >> "${OUTFILE}"
+    # Build row into variable to avoid space injection from backslash continuation
+    local csv_row
+    csv_row="$(csv_escape_field "${ORG_NAME}"),$(csv_escape_field "${space_name}"),"
+    csv_row="${csv_row}$(csv_escape_field "${app_name}"),$(csv_escape_field "${proc_type}"),"
+    csv_row="${csv_row}${instances},${mem},${disk},${mem_usage},${disk_usage},${total_disk_usage},"
+    csv_row="${csv_row}$(csv_escape_field "${app_state}"),"
+    csv_row="${csv_row}$(csv_escape_field "${buildpacks}"),"
+    csv_row="${csv_row}$(csv_escape_field "${buildpack_details}"),"
+    csv_row="${csv_row}$(csv_escape_field "${runtime_version}"),$(csv_escape_field "${routes}"),"
+    csv_row="${csv_row}$(csv_escape_field "${domains}"),"
+    csv_row="${csv_row}$(csv_escape_field "${service_instances}"),"
+    csv_row="${csv_row}$(csv_escape_field "${service_bindings}"),"
+    csv_row="${csv_row}$(csv_escape_field "${volume_services}"),"
+    csv_row="${csv_row}$(csv_escape_field "${volume_size}"),"
+    csv_row="${csv_row}$(csv_escape_field "${env_vars}"),"
+    csv_row="${csv_row}$(csv_escape_field "${all_security_groups}")"
+    echo "${csv_row}" >> "${OUTFILE}"
   done
 }
 
@@ -1595,6 +1607,7 @@ OPTIONS:
   -o, --output FILE    Output CSV file path
                        (default: pcfusage_<org>_YYYYMMDDHHMMSS.csv)
   -d, --debug          Enable verbose diagnostic output
+  --no-env-vars        Skip extracting environment variables (Env Vars column will be empty)
   -h, --help           Display this help message
 
 DESCRIPTION:
@@ -1729,13 +1742,19 @@ function cli_parse_args() {
   ORG_NAME=""
   DEBUG=""
   OUTFILE=""
+  SKIP_ENV_VARS=""
 
   # Parse arguments
   while [[ $# -gt 0 ]]; do
     case "$1" in
       -d|--debug)
         DEBUG="--debug"
-        echo "🔍 Debug mode enabled"
+        echo "🔍 Debug mode enabled" >&2
+        shift
+        ;;
+      --no-env-vars)
+        SKIP_ENV_VARS="true"
+        echo "⚠️  Environment variable extraction disabled" >&2
         shift
         ;;
       -o|--output)
@@ -1800,20 +1819,20 @@ GLOBAL_SECURITY_GROUPS=$(extract_global_security_groups)
 extract_spaces "${ORG_GUID}" "${ORG_SECURITY_GROUPS}" "${GLOBAL_SECURITY_GROUPS}"
 
 # Report completion
-echo
-echo "✅ Report generated: ${OUTFILE}"
+echo >&2
+echo "✅ Report generated: ${OUTFILE}" >&2
 if [[ "${WARNING_COUNT}" -gt 0 ]]; then
   echo "⚠️  Data Quality: ${WARNING_COUNT} warnings encountered " \
-       "(see stderr output)"
-  echo "   Some data may be incomplete due to API failures"
-  echo "   Run with --debug flag for detailed warnings"
+       "(see stderr output)" >&2
+  echo "   Some data may be incomplete due to API failures" >&2
+  echo "   Run with --debug flag for detailed warnings" >&2
 else
-  echo "✓  Data Quality: No warnings - extraction completed successfully"
+  echo "✓  Data Quality: No warnings - extraction completed successfully" >&2
 fi
 
 if [[ "${DEBUG}" == "--debug" ]]; then
-  echo "🔍 CSV preview:"
-  head -n 10 "${OUTFILE}"
+  echo "🔍 CSV preview:" >&2
+  head -n 10 "${OUTFILE}" >&2
 
   # Debug: validate_json_response function test
   util_debug "Testing validate_json_response..."

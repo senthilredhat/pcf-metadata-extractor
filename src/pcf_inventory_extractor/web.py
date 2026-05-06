@@ -80,6 +80,7 @@ def create_app() -> FastAPI:
         output_path: str = Form(""),
         debug: str | None = Form(default=None),
         disable_ssl_verify: str | None = Form(default=None),
+        no_env_vars: str | None = Form(default=None),
     ) -> FileResponse:
         org = org_name.strip()
         if not org:
@@ -90,6 +91,7 @@ def create_app() -> FastAPI:
         is_debug = (debug or "").strip().lower() in ("on", "true", "1", "yes")
         is_ssl_disabled = (disable_ssl_verify or "").strip().lower() in ("on", "true", "1", "yes")
         https_verify = not is_ssl_disabled  # Invert: checkbox is "disable", config is "verify"
+        is_skip_env_vars = (no_env_vars or "").strip().lower() in ("on", "true", "1", "yes")
 
         o = (output_path or "").strip()
         if o:
@@ -106,6 +108,7 @@ def create_app() -> FastAPI:
             cf_username=cf_username.strip(),
             cf_password=cf_password,
             https_verify=https_verify,
+            skip_env_vars=is_skip_env_vars,
         )
         try:
             run_extraction(cfg)

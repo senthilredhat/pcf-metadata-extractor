@@ -35,6 +35,7 @@ chmod +x extract-pcf-inventory.sh
 
 - `-o, --output FILE` - Custom output CSV file path (default: `pcfusage_<org>_YYYYMMDDHHMMSS.csv`)
 - `-d, --debug` - Enable verbose diagnostic output
+- `--no-env-vars` - Skip extracting environment variables (Env Vars column will be empty)
 - `-h, --help` - Display comprehensive help message
 
 ### Examples
